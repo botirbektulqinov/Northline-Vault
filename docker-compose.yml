@@ -1,0 +1,17 @@
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: northline-vault
+    environment:
+      DATABASE_URL: file:/data/dev.db
+      NODE_ENV: production
+      PORT: 3000
+    ports:
+      - "3000:3000"
+    volumes:
+      - northline_vault_data:/data
+
+volumes:
+  northline_vault_data:
