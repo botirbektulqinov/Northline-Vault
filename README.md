@@ -236,16 +236,15 @@ Create a `.env` file with:
 
 ```env
 DATABASE_URL="postgresql://northline:northline_password@localhost:5432/northline_vault?schema=public"
-DIRECT_URL="postgresql://northline:northline_password@localhost:5432/northline_vault?schema=public"
 ```
 
-The repo includes `.env.example` with a local PostgreSQL example and commented Neon examples.
+The repo includes `.env.example` with a local PostgreSQL example and a commented Neon example.
 
 Notes:
 
-- `DATABASE_URL` is used by the app at runtime.
-- `DIRECT_URL` is used by Prisma migrations and should point at the direct database connection.
-- For Neon, use the pooled connection for `DATABASE_URL` and the direct connection for `DIRECT_URL`.
+- `DATABASE_URL` is used by the app and by Prisma during Vercel builds.
+- Vercel only needs `DATABASE_URL` for the current schema.
+- If your Vercel project build command runs `prisma db push`, the database URL must be available in Production, Preview, and Development environments as needed.
 
 ## Database setup
 

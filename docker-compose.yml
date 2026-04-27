@@ -24,7 +24,6 @@ services:
         condition: service_healthy
     environment:
       DATABASE_URL: postgresql://northline:northline_password@db:5432/northline_vault?schema=public
-      DIRECT_URL: postgresql://northline:northline_password@db:5432/northline_vault?schema=public
       NODE_ENV: production
       PORT: 3000
     ports:
