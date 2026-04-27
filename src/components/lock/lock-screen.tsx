@@ -2,7 +2,15 @@
 
 import { zodResolver } from "@hookform/resolvers/zod";
 import { motion } from "framer-motion";
-import { ArrowLeft, Plus, ShieldCheck, ShieldEllipsis, User } from "lucide-react";
+import {
+  AlertTriangle,
+  ArrowLeft,
+  Plus,
+  RefreshCw,
+  ShieldCheck,
+  ShieldEllipsis,
+  User,
+} from "lucide-react";
 import Image from "next/image";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
@@ -31,9 +39,12 @@ const setupSchema = z
     vaultName: z
       .string()
       .trim()
-    .min(2, "Profile name must be at least 2 characters.")
-    .max(40, "Profile name must be under 40 characters.")
-      .regex(/^[a-zA-Z0-9_\-\s]+$/, "Only letters, numbers, spaces, hyphens and underscores."),
+      .min(2, "Profile name must be at least 2 characters.")
+      .max(40, "Profile name must be under 40 characters.")
+      .regex(
+        /^[a-zA-Z0-9_\-\s]+$/,
+        "Only letters, numbers, spaces, hyphens and underscores.",
+      ),
     masterPassword: z
       .string()
       .min(12, "Use at least 12 characters for the master password."),
@@ -49,7 +60,16 @@ const setupSchema = z
 
 export function LockScreen() {
   const router = useRouter();
-  const { createVault, vaultSummaries, isReady, isUnlocked, status, unlock } = useVault();
+  const {
+    bootError,
+    createVault,
+    vaultSummaries,
+    isReady,
+    isUnlocked,
+    reloadVault,
+    status,
+    unlock,
+  } = useVault();
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [view, setView] = useState<LockView>("select");
   const [selectedVault, setSelectedVault] = useState<VaultSummary | null>(null);
@@ -134,6 +154,41 @@ export function LockScreen() {
 
   if (!isReady || status === "booting") {
     return <FullPageLoader />;
+  }
+
+  if (bootError) {
+    const message =
+      bootError === "Unexpected server error."
+        ? "The vault API could not load metadata. Check the Vercel database environment and apply the database schema."
+        : bootError;
+
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-[var(--app-canvas)] px-6 text-foreground">
+        <div className="w-full max-w-md rounded-lg border border-[#d8c8bd] bg-card p-6 text-center shadow-sm">
+          <div className="mx-auto flex size-14 items-center justify-center rounded-lg bg-[#fff3ef] text-[#8f3f32]">
+            <AlertTriangle className="size-6" />
+          </div>
+          <div className="mt-5 space-y-2">
+            <h1 className="text-2xl font-semibold tracking-tight">
+              Vault storage unavailable
+            </h1>
+            <p className="text-sm leading-6 text-muted-foreground">{message}</p>
+          </div>
+          <Button
+            type="button"
+            className="mt-6 h-11 w-full gap-2"
+            onClick={() => void reloadVault()}
+          >
+            <RefreshCw className="size-4" />
+            Retry
+          </Button>
+          <p className="mt-4 text-xs leading-5 text-muted-foreground">
+            The vault remains locked. No decrypted secrets were loaded into this
+            browser session.
+          </p>
+        </div>
+      </div>
+    );
   }
 
   return (

@@ -24,6 +24,7 @@ import {
   type SessionKeys,
 } from "@/lib/crypto/kdf";
 import { DEFAULT_VAULT_SETTINGS } from "@/lib/constants/vault";
+import { getErrorMessage } from "@/lib/errors";
 import {
   getCredentialAgeInDays,
   buildReuseCountMap,
@@ -47,6 +48,7 @@ interface VaultContextValue {
   isReady: boolean;
   isUnlocked: boolean;
   hasVault: boolean;
+  bootError: string | null;
   vaultSummaries: VaultSummary[];
   vault: VaultSnapshot | null;
   settings: VaultSettings;
@@ -138,6 +140,7 @@ function createUnlockedCredential(
 
 export function VaultProvider({ children }: { children: React.ReactNode }) {
   const [status, setStatus] = useState<SessionStatus>("booting");
+  const [bootError, setBootError] = useState<string | null>(null);
   const [vaultSummaries, setVaultSummaries] = useState<VaultSummary[]>([]);
   const [vault, setVault] = useState<VaultSnapshot | null>(null);
   const [encryptedCredentials, setEncryptedCredentials] = useState<
@@ -209,16 +212,34 @@ export function VaultProvider({ children }: { children: React.ReactNode }) {
   );
 
   const reloadVault = useCallback(async () => {
-    const data = await requestJson<{ vaults: VaultSummary[] }>("/api/vault", {
-      method: "GET",
-    });
-
-    setVaultSummaries(data.vaults);
-
+    setBootError(null);
     setStatus((currentStatus) =>
-      currentStatus === "booting" ? "locked" : currentStatus,
+      currentStatus === "unlocked" ? currentStatus : "booting",
     );
-  }, []);
+
+    try {
+      const data = await requestJson<{ vaults: VaultSummary[] }>("/api/vault", {
+        method: "GET",
+      });
+
+      setVaultSummaries(data.vaults);
+
+      setStatus((currentStatus) =>
+        currentStatus === "booting" ? "locked" : currentStatus,
+      );
+    } catch (error) {
+      resetSessionState();
+      setVault(null);
+      setVaultSummaries([]);
+      setBootError(
+        getErrorMessage(
+          error,
+          "Vault metadata could not be loaded from storage.",
+        ),
+      );
+      setStatus("locked");
+    }
+  }, [resetSessionState]);
 
   useEffect(() => {
     void reloadVault();
@@ -633,6 +654,7 @@ export function VaultProvider({ children }: { children: React.ReactNode }) {
       isReady: status !== "booting",
       isUnlocked: status === "unlocked",
       hasVault: vaultSummaries.length > 0,
+      bootError,
       vaultSummaries,
       vault,
       settings,
@@ -651,6 +673,7 @@ export function VaultProvider({ children }: { children: React.ReactNode }) {
       reloadVault,
     }),
     [
+      bootError,
       changeMasterPassword,
       createVault,
       credentials,
