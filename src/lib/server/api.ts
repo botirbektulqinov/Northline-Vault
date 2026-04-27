@@ -21,10 +21,6 @@ export function jsonNoStore(data: unknown, init?: ResponseInit) {
   });
 }
 
-function getServerErrorMessage(error: unknown) {
-  return error instanceof Error ? error.message : "";
-}
-
 function getServerErrorCode(error: unknown) {
   return typeof error === "object" && error !== null && "code" in error
     ? String((error as { code?: unknown }).code)
@@ -46,31 +42,12 @@ export function apiError(error: unknown) {
     return jsonNoStore({ error: error.message }, { status: error.status });
   }
 
-  const message = getServerErrorMessage(error);
   const code = getServerErrorCode(error);
 
-  if (
-    message.includes("Environment variable not found") ||
-    message.includes("DATABASE_URL")
-  ) {
+  if (code === "P2021" || code === "P2022") {
     return jsonNoStore(
       {
-        error:
-          "Vault storage is not configured. Set DATABASE_URL in the deployment environment.",
-      },
-      { status: 503 },
-    );
-  }
-
-  if (
-    code === "P2021" ||
-    code === "P2022" ||
-    message.includes("does not exist")
-  ) {
-    return jsonNoStore(
-      {
-        error:
-          "Vault database schema is not ready. Apply the Prisma schema before using the app.",
+        error: "Vault storage is temporarily unavailable.",
       },
       { status: 503 },
     );

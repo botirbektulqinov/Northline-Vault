@@ -234,7 +234,7 @@ export function VaultProvider({ children }: { children: React.ReactNode }) {
       setBootError(
         getErrorMessage(
           error,
-          "Vault metadata could not be loaded from storage.",
+          "Secure storage is not reachable right now. Try again in a moment.",
         ),
       );
       setStatus("locked");

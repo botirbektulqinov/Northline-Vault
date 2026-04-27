@@ -356,26 +356,6 @@ npm run build
 npm run start
 ```
 
-## Vercel troubleshooting
-
-If `/lock` stays on the preparation screen or shows a storage error, check `/api/vault` first. A healthy empty deployment should return:
-
-```json
-{"vaults":[]}
-```
-
-Common causes:
-
-- `DATABASE_URL` is missing from Vercel Environment Variables.
-- The Vercel dashboard has an old Build Command override such as `prisma generate && prisma db push && next build`.
-- The database exists, but the Prisma schema has not been applied.
-
-Recommended Vercel setup:
-
-- Build Command: `npm run build`
-- Environment Variable: `DATABASE_URL` with the hosted PostgreSQL connection string
-- Apply schema changes deliberately with `npx prisma db push` or `npm run db:migrate` against the same database.
-
 ## Test, lint, and build commands
 
 ```bash

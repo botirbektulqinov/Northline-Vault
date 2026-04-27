@@ -159,7 +159,7 @@ export function LockScreen() {
   if (bootError) {
     const message =
       bootError === "Unexpected server error."
-        ? "The vault API could not load metadata. Check the Vercel database environment and apply the database schema."
+        ? "Secure storage is not reachable right now. Try again in a moment."
         : bootError;
 
     return (
@@ -170,7 +170,7 @@ export function LockScreen() {
           </div>
           <div className="mt-5 space-y-2">
             <h1 className="text-2xl font-semibold tracking-tight">
-              Vault storage unavailable
+              Secure storage unavailable
             </h1>
             <p className="text-sm leading-6 text-muted-foreground">{message}</p>
           </div>
