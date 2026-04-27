@@ -244,7 +244,8 @@ Notes:
 
 - `DATABASE_URL` is used by the app and by Prisma during Vercel builds.
 - Vercel only needs `DATABASE_URL` for the current schema.
-- If your Vercel project build command runs `prisma db push`, the database URL must be available in Production, Preview, and Development environments as needed.
+- The repo includes `vercel.json` with `npm run build` as the build command. Database migrations should be run intentionally, not as an implicit frontend build side effect.
+- If your Vercel dashboard still overrides the build command with `prisma generate && prisma db push && next build`, either change it to `npm run build` or make sure `DATABASE_URL` is configured before deployment.
 
 ## Database setup
 
