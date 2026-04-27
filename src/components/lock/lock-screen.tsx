@@ -28,10 +28,18 @@ import { useVault } from "@/hooks/use-vault";
 import { sanitizeReturnPath } from "@/lib/routes";
 import type { VaultSummary } from "@/lib/types";
 
-type LockView = "select" | "unlock" | "setup";
+type LockView = "home" | "lookup" | "unlock" | "setup";
 
 const unlockSchema = z.object({
   masterPassword: z.string().min(1, "Enter your master password."),
+});
+
+const workspaceLookupSchema = z.object({
+  workspaceName: z
+    .string()
+    .trim()
+    .min(2, "Enter the workspace name.")
+    .max(40, "Workspace names stay under 40 characters."),
 });
 
 const setupSchema = z
@@ -63,15 +71,17 @@ export function LockScreen() {
   const {
     bootError,
     createVault,
-    vaultSummaries,
+    hasVault,
     isReady,
     isUnlocked,
+    lookupVault,
+    recentVault,
     reloadVault,
     status,
     unlock,
   } = useVault();
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  const [view, setView] = useState<LockView>("select");
+  const [view, setView] = useState<LockView>("home");
   const [selectedVault, setSelectedVault] = useState<VaultSummary | null>(null);
 
   const nextPath = useMemo(() => {
@@ -91,6 +101,13 @@ export function LockScreen() {
     },
   });
 
+  const workspaceLookupForm = useForm<z.infer<typeof workspaceLookupSchema>>({
+    resolver: zodResolver(workspaceLookupSchema),
+    defaultValues: {
+      workspaceName: "",
+    },
+  });
+
   const setupForm = useForm<z.infer<typeof setupSchema>>({
     resolver: zodResolver(setupSchema),
     defaultValues: {
@@ -106,12 +123,11 @@ export function LockScreen() {
     }
   }, [isUnlocked, nextPath, router]);
 
-  // Auto-select view based on vault count
   useEffect(() => {
-    if (isReady && vaultSummaries.length === 0) {
+    if (isReady && !hasVault) {
       setView("setup");
     }
-  }, [isReady, vaultSummaries.length]);
+  }, [hasVault, isReady]);
 
   const setupPassword = setupForm.watch("masterPassword");
 
@@ -140,16 +156,26 @@ export function LockScreen() {
     setView("unlock");
   };
 
-  const handleBackToSelect = () => {
+  const handleBackToHome = () => {
     setSelectedVault(null);
     setErrorMessage(null);
-    setView("select");
+    workspaceLookupForm.reset({ workspaceName: "" });
+    setView("home");
   };
 
   const handleShowSetup = () => {
     setErrorMessage(null);
+    workspaceLookupForm.reset({ workspaceName: "" });
     setupForm.reset({ vaultName: "", masterPassword: "", confirmMasterPassword: "" });
     setView("setup");
+  };
+
+  const handleShowWorkspaceLookup = () => {
+    setErrorMessage(null);
+    workspaceLookupForm.reset({
+      workspaceName: recentVault?.name ?? "",
+    });
+    setView("lookup");
   };
 
   if (!isReady || status === "booting") {
@@ -246,44 +272,63 @@ export function LockScreen() {
             transition={{ duration: 0.24, ease: "easeOut" }}
             className="w-full max-w-md space-y-8"
           >
-            {/* ===== VAULT SELECTION VIEW ===== */}
-            {view === "select" && (
+            {/* ===== HOME VIEW ===== */}
+            {view === "home" && (
               <>
                 <div className="space-y-3">
                   <p className="text-sm uppercase tracking-[0.16em] text-muted-foreground">
-                    Choose profile
+                    Workspace access
                   </p>
                   <div className="space-y-2">
                     <h2 className="text-3xl font-semibold tracking-tight">
                       Welcome back
                     </h2>
                     <p className="text-sm leading-6 text-muted-foreground">
-                      Select your profile to unlock, or create a new personal vault.
+                      Open your own workspace without exposing everyone else&apos;s.
                     </p>
                   </div>
                 </div>
 
                 <div className="space-y-3">
-                  {vaultSummaries.map((summary) => (
-                    <button
-                      key={summary.id}
-                      type="button"
-                      onClick={() => handleSelectVault(summary)}
-                      className="flex w-full items-center gap-4 rounded-xl border border-black/8 bg-background p-4 text-left shadow-sm transition-all hover:border-black/16 hover:shadow-md active:scale-[0.99]"
-                    >
-                      <div className="flex size-10 items-center justify-center rounded-full bg-[#2f6f55]/10">
-                        <User className="size-5 text-[#2f6f55]" />
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <p className="text-sm font-medium truncate">{summary.name}</p>
-                        <p className="text-xs text-muted-foreground">
-                          Created {new Date(summary.createdAt).toLocaleDateString()}
-                        </p>
-                      </div>
-                      <ShieldEllipsis className="size-4 text-muted-foreground" />
-                    </button>
-                  ))}
+                  <button
+                    type="button"
+                    onClick={() =>
+                      recentVault
+                        ? handleSelectVault(recentVault)
+                        : handleShowWorkspaceLookup()
+                    }
+                    className="flex w-full items-center gap-4 rounded-xl border border-black/8 bg-background p-4 text-left shadow-sm transition-all hover:border-black/16 hover:shadow-md active:scale-[0.99]"
+                  >
+                    <div className="flex size-11 items-center justify-center rounded-full bg-[#2f6f55]/10">
+                      <User className="size-5 text-[#2f6f55]" />
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">
+                        My workspace
+                      </p>
+                      <p className="mt-1 truncate text-base font-semibold">
+                        {recentVault?.name ?? "Find your workspace"}
+                      </p>
+                      <p className="mt-1 text-sm leading-6 text-muted-foreground">
+                        {recentVault
+                          ? "Continue to the workspace last used on this browser."
+                          : "Use your workspace name and master password to continue."}
+                      </p>
+                    </div>
+                    <ShieldEllipsis className="size-4 text-muted-foreground" />
+                  </button>
                 </div>
+
+                {recentVault ? (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    className="h-11 w-full"
+                    onClick={handleShowWorkspaceLookup}
+                  >
+                    Use another workspace
+                  </Button>
+                ) : null}
 
                 <Button
                   type="button"
@@ -297,17 +342,112 @@ export function LockScreen() {
               </>
             )}
 
+            {/* ===== LOOKUP VIEW ===== */}
+            {view === "lookup" && (
+              <>
+                <div className="space-y-3">
+                  <button
+                    type="button"
+                    onClick={handleBackToHome}
+                    className="flex items-center gap-1.5 text-sm text-muted-foreground transition-colors hover:text-foreground"
+                  >
+                    <ArrowLeft className="size-3.5" />
+                    Back
+                  </button>
+                  <div className="space-y-2">
+                    <p className="text-sm uppercase tracking-[0.16em] text-muted-foreground">
+                      My workspace
+                    </p>
+                    <h2 className="text-3xl font-semibold tracking-tight">
+                      Find your workspace
+                    </h2>
+                    <p className="text-sm leading-6 text-muted-foreground">
+                      Enter the workspace name you created earlier. You will enter the
+                      master password on the next step.
+                    </p>
+                  </div>
+                </div>
+
+                {errorMessage ? (
+                  <motion.p
+                    initial={{ opacity: 0, y: -4 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    role="alert"
+                    aria-live="polite"
+                    className="rounded-lg border border-[#d3b2aa] bg-[#fff3ef] px-4 py-3 text-sm text-[#7c3b2f]"
+                  >
+                    {errorMessage}
+                  </motion.p>
+                ) : null}
+
+                <form
+                  className="space-y-5"
+                  onSubmit={workspaceLookupForm.handleSubmit(async (values) => {
+                    setErrorMessage(null);
+
+                    try {
+                      const matchedVault = await lookupVault(values.workspaceName);
+
+                      if (!matchedVault) {
+                        setErrorMessage(
+                          "Workspace not found. Check the name or create a new personal vault.",
+                        );
+                        return;
+                      }
+
+                      handleSelectVault(matchedVault);
+                    } catch (error) {
+                      setErrorMessage(
+                        getErrorMessage(
+                          error,
+                          "The workspace could not be looked up.",
+                        ),
+                      );
+                    }
+                  })}
+                >
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium" htmlFor="workspace-name">
+                      Workspace name
+                    </label>
+                    <Input
+                      id="workspace-name"
+                      type="text"
+                      autoComplete="organization"
+                      placeholder="Enter your workspace name"
+                      {...workspaceLookupForm.register("workspaceName")}
+                    />
+                    {workspaceLookupForm.formState.errors.workspaceName ? (
+                      <p className="text-sm text-destructive">
+                        {workspaceLookupForm.formState.errors.workspaceName.message}
+                      </p>
+                    ) : null}
+                  </div>
+
+                  <Button
+                    type="submit"
+                    className="h-11 w-full"
+                    disabled={workspaceLookupForm.formState.isSubmitting}
+                  >
+                    {workspaceLookupForm.formState.isSubmitting
+                      ? "Finding workspace..."
+                      : "Continue"}
+                  </Button>
+                </form>
+              </>
+            )}
+
             {/* ===== UNLOCK VIEW ===== */}
             {view === "unlock" && selectedVault && (
               <>
                 <div className="space-y-3">
                   <button
                     type="button"
-                    onClick={handleBackToSelect}
+                    onClick={handleBackToHome}
                     className="flex items-center gap-1.5 text-sm text-muted-foreground transition-colors hover:text-foreground"
                   >
                     <ArrowLeft className="size-3.5" />
-                    Back to vault list
+                    Back
                   </button>
                   <div className="space-y-2">
                     <div className="flex items-center gap-3">
@@ -327,7 +467,7 @@ export function LockScreen() {
                   </div>
                 </div>
 
-                {errorMessage ? (
+                  {errorMessage ? (
                   <motion.p
                     initial={{ opacity: 0, y: -4 }}
                     animate={{ opacity: 1, y: 0 }}
@@ -388,18 +528,18 @@ export function LockScreen() {
             {view === "setup" && (
               <>
                 <div className="space-y-3">
-                  {vaultSummaries.length > 0 && (
+                  {hasVault && (
                     <button
                       type="button"
-                      onClick={handleBackToSelect}
+                      onClick={handleBackToHome}
                       className="flex items-center gap-1.5 text-sm text-muted-foreground transition-colors hover:text-foreground"
                     >
                       <ArrowLeft className="size-3.5" />
-                      Back to vault list
+                      Back
                     </button>
                   )}
                   <p className="text-sm uppercase tracking-[0.16em] text-muted-foreground">
-                    {vaultSummaries.length === 0 ? "First-time setup" : "New profile"}
+                    {hasVault ? "New workspace" : "First-time setup"}
                   </p>
                   <div className="space-y-2">
                     <h2 className="text-3xl font-semibold tracking-tight">

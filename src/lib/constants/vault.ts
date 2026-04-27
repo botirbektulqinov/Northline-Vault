@@ -1,6 +1,7 @@
 import type { PasswordGeneratorOptions, VaultSettings } from "@/lib/types";
 
 export const APP_NAME = "Northline Vault";
+export const LAST_WORKSPACE_STORAGE_KEY = "northline-vault:last-workspace";
 
 export const DEFAULT_VAULT_SETTINGS: VaultSettings = {
   autoLockMinutes: 15,

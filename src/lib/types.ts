@@ -22,6 +22,11 @@ export interface VaultSummary {
   createdAt: string;
 }
 
+export interface VaultDirectoryState {
+  hasVaults: boolean;
+  recentVault: VaultSummary | null;
+}
+
 export interface VaultSnapshot {
   id: string;
   name: string;

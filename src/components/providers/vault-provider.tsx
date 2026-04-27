@@ -23,7 +23,10 @@ import {
   timingSafeEqual,
   type SessionKeys,
 } from "@/lib/crypto/kdf";
-import { DEFAULT_VAULT_SETTINGS } from "@/lib/constants/vault";
+import {
+  DEFAULT_VAULT_SETTINGS,
+  LAST_WORKSPACE_STORAGE_KEY,
+} from "@/lib/constants/vault";
 import { getErrorMessage } from "@/lib/errors";
 import {
   getCredentialAgeInDays,
@@ -38,6 +41,7 @@ import type {
   SecuritySummary,
   SessionStatus,
   VaultBackupExport,
+  VaultDirectoryState,
   VaultSettings,
   VaultSnapshot,
   VaultSummary,
@@ -49,7 +53,7 @@ interface VaultContextValue {
   isUnlocked: boolean;
   hasVault: boolean;
   bootError: string | null;
-  vaultSummaries: VaultSummary[];
+  recentVault: VaultSummary | null;
   vault: VaultSnapshot | null;
   settings: VaultSettings;
   credentials: DecryptedCredential[];
@@ -74,6 +78,7 @@ interface VaultContextValue {
   ) => Promise<void>;
   exportBackup: () => VaultBackupExport | null;
   findCredential: (id: string) => DecryptedCredential | undefined;
+  lookupVault: (name: string) => Promise<VaultSummary | null>;
   reloadVault: () => Promise<void>;
 }
 
@@ -89,6 +94,30 @@ function clearSessionKeys(keys: SessionKeys | null) {
   }
 
   clearBytes(keys.fingerprintKeyBytes);
+}
+
+function readRememberedWorkspaceId() {
+  if (typeof window === "undefined") {
+    return null;
+  }
+
+  return window.localStorage.getItem(LAST_WORKSPACE_STORAGE_KEY);
+}
+
+function rememberWorkspace(vaultSummary: VaultSummary) {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  window.localStorage.setItem(LAST_WORKSPACE_STORAGE_KEY, vaultSummary.id);
+}
+
+function forgetRememberedWorkspace() {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  window.localStorage.removeItem(LAST_WORKSPACE_STORAGE_KEY);
 }
 
 async function requestJson<T>(input: RequestInfo, init?: RequestInit): Promise<T> {
@@ -141,7 +170,8 @@ function createUnlockedCredential(
 export function VaultProvider({ children }: { children: React.ReactNode }) {
   const [status, setStatus] = useState<SessionStatus>("booting");
   const [bootError, setBootError] = useState<string | null>(null);
-  const [vaultSummaries, setVaultSummaries] = useState<VaultSummary[]>([]);
+  const [hasVaults, setHasVaults] = useState(false);
+  const [recentVault, setRecentVault] = useState<VaultSummary | null>(null);
   const [vault, setVault] = useState<VaultSnapshot | null>(null);
   const [encryptedCredentials, setEncryptedCredentials] = useState<
     EncryptedCredentialRecord[]
@@ -218,11 +248,20 @@ export function VaultProvider({ children }: { children: React.ReactNode }) {
     );
 
     try {
-      const data = await requestJson<{ vaults: VaultSummary[] }>("/api/vault", {
+      const rememberedWorkspaceId = readRememberedWorkspaceId();
+      const query = rememberedWorkspaceId
+        ? `?recentId=${encodeURIComponent(rememberedWorkspaceId)}`
+        : "";
+      const data = await requestJson<VaultDirectoryState>(`/api/vault${query}`, {
         method: "GET",
       });
 
-      setVaultSummaries(data.vaults);
+      setHasVaults(data.hasVaults);
+      setRecentVault(data.recentVault);
+
+      if (rememberedWorkspaceId && !data.recentVault) {
+        forgetRememberedWorkspace();
+      }
 
       setStatus((currentStatus) =>
         currentStatus === "booting" ? "locked" : currentStatus,
@@ -230,7 +269,8 @@ export function VaultProvider({ children }: { children: React.ReactNode }) {
     } catch (error) {
       resetSessionState();
       setVault(null);
-      setVaultSummaries([]);
+      setHasVaults(false);
+      setRecentVault(null);
       setBootError(
         getErrorMessage(
           error,
@@ -338,6 +378,13 @@ export function VaultProvider({ children }: { children: React.ReactNode }) {
         replaceSessionKeys(keys);
         keys = null;
         setVault(targetVault);
+        const nextRecentVault = {
+          id: targetVault.id,
+          name: targetVault.name,
+          createdAt: targetVault.createdAt,
+        };
+        setRecentVault(nextRecentVault);
+        rememberWorkspace(nextRecentVault);
         await hydrateCredentials(
           data.credentials,
           targetVault,
@@ -387,14 +434,14 @@ export function VaultProvider({ children }: { children: React.ReactNode }) {
         replaceSessionKeys(keys);
         keys = null;
         setVault(data.vault);
-        setVaultSummaries((prev) => [
-          ...prev,
-          {
-            id: data.vault.id,
-            name: data.vault.name,
-            createdAt: data.vault.createdAt,
-          },
-        ]);
+        setHasVaults(true);
+        const nextRecentVault = {
+          id: data.vault.id,
+          name: data.vault.name,
+          createdAt: data.vault.createdAt,
+        };
+        setRecentVault(nextRecentVault);
+        rememberWorkspace(nextRecentVault);
         setEncryptedCredentials([]);
         setCredentials([]);
         setStatus("unlocked");
@@ -405,6 +452,17 @@ export function VaultProvider({ children }: { children: React.ReactNode }) {
     },
     [replaceSessionKeys],
   );
+
+  const lookupVault = useCallback(async (name: string) => {
+    const data = await requestJson<{ vault: VaultSummary | null }>(
+      `/api/vault?name=${encodeURIComponent(name)}`,
+      {
+        method: "GET",
+      },
+    );
+
+    return data.vault;
+  }, []);
 
   const saveCredential = useCallback(
     async (values: CredentialFormValues, id?: string) => {
@@ -653,9 +711,9 @@ export function VaultProvider({ children }: { children: React.ReactNode }) {
       status,
       isReady: status !== "booting",
       isUnlocked: status === "unlocked",
-      hasVault: vaultSummaries.length > 0,
+      hasVault: hasVaults,
       bootError,
-      vaultSummaries,
+      recentVault,
       vault,
       settings,
       credentials,
@@ -670,6 +728,7 @@ export function VaultProvider({ children }: { children: React.ReactNode }) {
       changeMasterPassword,
       exportBackup,
       findCredential,
+      lookupVault,
       reloadVault,
     }),
     [
@@ -681,7 +740,10 @@ export function VaultProvider({ children }: { children: React.ReactNode }) {
       encryptedCredentials,
       exportBackup,
       findCredential,
+      hasVaults,
       lock,
+      lookupVault,
+      recentVault,
       reloadVault,
       saveCredential,
       settings,
@@ -689,7 +751,6 @@ export function VaultProvider({ children }: { children: React.ReactNode }) {
       unlock,
       updateSettings,
       vault,
-      vaultSummaries,
     ],
   );
 

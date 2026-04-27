@@ -9,21 +9,49 @@ import {
 
 export const runtime = "nodejs";
 
-export async function GET() {
+export async function GET(request: Request) {
   try {
-    const vaults = await prisma.vault.findMany({
-      select: {
-        id: true,
-        name: true,
-        createdAt: true,
-      },
-      orderBy: {
-        createdAt: "asc",
-      },
-    });
+    const { searchParams } = new URL(request.url);
+    const name = searchParams.get("name")?.trim();
+    const recentId = searchParams.get("recentId")?.trim();
+
+    if (name) {
+      const vault = await prisma.vault.findFirst({
+        where: {
+          name: {
+            equals: name,
+            mode: "insensitive",
+          },
+        },
+        select: {
+          id: true,
+          name: true,
+          createdAt: true,
+        },
+      });
+
+      return jsonNoStore({
+        vault: vault ? toVaultSummary(vault) : null,
+      });
+    }
+
+    const [count, recentVault] = await Promise.all([
+      prisma.vault.count(),
+      recentId
+        ? prisma.vault.findUnique({
+            where: { id: recentId },
+            select: {
+              id: true,
+              name: true,
+              createdAt: true,
+            },
+          })
+        : Promise.resolve(null),
+    ]);
 
     return jsonNoStore({
-      vaults: vaults.map(toVaultSummary),
+      hasVaults: count > 0,
+      recentVault: recentVault ? toVaultSummary(recentVault) : null,
     });
   } catch (error) {
     return apiError(error);
