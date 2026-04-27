@@ -1,72 +1,23 @@
-import { encryptedCredentialSchema } from "@/lib/schemas";
-import { apiError, jsonNoStore } from "@/lib/server/api";
-import { prisma } from "@/lib/server/prisma";
-import { toCredentialRecord } from "@/lib/server/vault-store";
+// This route has been moved to /api/vault/[id]/credentials
+// Keeping this file to avoid 404 during transition.
+import { jsonNoStore } from "@/lib/server/api";
 
 export const runtime = "nodejs";
 
 export async function GET() {
-  try {
-    const vault = await prisma.vault.findFirst({
-      select: { id: true },
-    });
-
-    if (!vault) {
-      return jsonNoStore({ credentials: [] });
-    }
-
-    const credentials = await prisma.credential.findMany({
-      where: {
-        vaultId: vault.id,
-      },
-      orderBy: {
-        updatedAt: "desc",
-      },
-    });
-
-    return jsonNoStore({
-      credentials: credentials.map(toCredentialRecord),
-    });
-  } catch (error) {
-    return apiError(error);
-  }
+  return jsonNoStore(
+    {
+      error: "This endpoint has moved. Use /api/vault/[id]/credentials instead.",
+    },
+    { status: 410 },
+  );
 }
 
-export async function POST(request: Request) {
-  try {
-    const payload = encryptedCredentialSchema.parse(await request.json());
-    const vault = await prisma.vault.findFirst({
-      select: { id: true },
-    });
-
-    if (!vault) {
-      return jsonNoStore({ error: "Vault not found." }, { status: 404 });
-    }
-
-    const credential = await prisma.credential.create({
-      data: {
-        vaultId: vault.id,
-        serviceName: payload.serviceName,
-        url: payload.url,
-        department: payload.department || null,
-        project: payload.project || null,
-        category: payload.category || null,
-        tagsJson: JSON.stringify(payload.tags),
-        usernameCiphertext: payload.usernameCiphertext,
-        passwordCiphertext: payload.passwordCiphertext,
-        notesCiphertext: payload.notesCiphertext,
-        passwordStrength: payload.passwordStrength,
-        passwordFingerprint: payload.passwordFingerprint,
-      },
-    });
-
-    return jsonNoStore(
-      {
-        credential: toCredentialRecord(credential),
-      },
-      { status: 201 },
-    );
-  } catch (error) {
-    return apiError(error);
-  }
+export async function POST() {
+  return jsonNoStore(
+    {
+      error: "This endpoint has moved. Use /api/vault/[id]/credentials instead.",
+    },
+    { status: 410 },
+  );
 }

@@ -21,6 +21,12 @@ export const settingsSchema = z.object({
 });
 
 export const createVaultSchema = z.object({
+  name: z
+    .string()
+    .trim()
+    .min(2, "Profile name must be at least 2 characters.")
+    .max(40, "Profile name must be under 40 characters.")
+    .regex(/^[a-zA-Z0-9_\-\s]+$/, "Only letters, numbers, spaces, hyphens and underscores."),
   salt: z.string().min(1),
   verifier: z.string().min(1),
   settings: settingsSchema.default(DEFAULT_VAULT_SETTINGS),

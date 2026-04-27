@@ -2,7 +2,7 @@
 
 Northline Vault is a polished team password manager built for a hiring-grade assessment. It is designed as an internal company tool for shared credentials, with a deliberate lock screen, client-side encryption, clean operational workflows, and visible security hygiene signals.
 
-The app is locked by default on every load. A master password derives client-side keys, secret fields are encrypted before they are persisted, and decrypted values only exist in the active browser session.
+The app is locked by default on every load. Each person can create a separate encrypted vault profile with their own master password. That password derives client-side keys, secret fields are encrypted before persistence, and decrypted values only exist in the active browser session.
 
 ## Project overview
 
@@ -31,8 +31,9 @@ Northline Vault is built around that principle:
 
 ## Core features
 
-- Master-password setup flow for the first vault creation
-- Returning-user unlock flow with clear feedback on failure
+- Personal vault profiles so each person can use a separate master password
+- Master-password setup flow for new profile creation
+- Returning-user profile selection and unlock flow with clear feedback on failure
 - Vault locked by default whenever the app loads
 - Client-side AES-GCM encryption for:
   - username
@@ -91,7 +92,7 @@ Northline Vault is built around that principle:
 - shadcn/ui
 - Framer Motion
 - Prisma
-- SQLite by default for local setup
+- PostgreSQL through Prisma, with Docker Compose local Postgres and Neon-ready environment variables
 - Web Crypto API
 - `hash-wasm` Argon2id for browser-side key derivation
 - zod
@@ -104,10 +105,10 @@ Northline Vault is built around that principle:
 ### 1. Master password model
 
 - The master password is never stored.
-- A random per-vault salt is generated on setup.
+- A random per-vault-profile salt is generated on setup.
 - Argon2id derives master key material in the browser from:
   - the entered master password
-  - the per-vault salt
+  - the selected vault profile salt
 
 ### 2. Key separation
 
@@ -179,18 +180,19 @@ Reason:
 
 This keeps operational metadata usable while still protecting the actual secrets.
 
-### Single-vault local architecture
+### Personal vault profiles
 
-This repo uses a single local vault rather than multi-user auth and cloud sharing. That keeps the project centered on the important parts of the assessment:
+The lock screen supports multiple vault profiles. Each profile has its own salt, verifier, settings, encrypted credentials, password fingerprints, and master password. This fixes the common failure mode where one person creates a vault and everyone else is forced to use that same master password.
 
-- lock/setup correctness
-- encryption boundaries
-- shared-credential workflows
-- product quality
+Tradeoff:
 
-### SQLite as the default local database
+- credentials are isolated per profile in this version
+- a true shared company vault with separate user master passwords would require a random vault data key wrapped separately for each authorized user
+- that key-wrapping model is the right next step for production team sharing, but it is larger than the current assessment scope
 
-SQLite keeps local evaluation friction low. The Prisma schema is intentionally simple and portable so moving to PostgreSQL later is straightforward.
+### PostgreSQL as the default database
+
+The current `main` branch is configured for PostgreSQL so the app can run cleanly in production on Neon/Vercel and locally through Docker Compose. The Prisma schema remains focused and portable, but SQLite is no longer the active runtime database in this branch.
 
 ### Clipboard clearing is best effort
 
@@ -233,23 +235,25 @@ tests/
 Create a `.env` file with:
 
 ```env
-DATABASE_URL="file:./dev.db"
+DATABASE_URL="postgresql://northline:northline_password@localhost:5432/northline_vault?schema=public"
+DIRECT_URL="postgresql://northline:northline_password@localhost:5432/northline_vault?schema=public"
 ```
 
-The repo already includes `.env.example` with the same default SQLite value.
+The repo includes `.env.example` with a local PostgreSQL example and commented Neon examples.
 
 Notes:
 
-- For native local runs, `file:./dev.db` resolves to `prisma/dev.db`.
-- The Docker setup overrides this with `DATABASE_URL=file:/data/dev.db` so the SQLite file lives in a persistent container volume instead of inside the image.
+- `DATABASE_URL` is used by the app at runtime.
+- `DIRECT_URL` is used by Prisma migrations and should point at the direct database connection.
+- For Neon, use the pooled connection for `DATABASE_URL` and the direct connection for `DIRECT_URL`.
 
 ## Database setup
 
 This repo ships with:
 
 - a Prisma schema
-- a generated migration SQL file
-- a local SQLite setup script
+- PostgreSQL migrations
+- a Docker Compose Postgres service for local runs
 
 For local evaluation:
 
@@ -258,13 +262,18 @@ npm run prisma:generate
 npm run db:migrate
 ```
 
-`db:migrate` applies the included migration SQL into `prisma/dev.db`.
+`db:migrate` runs `prisma migrate deploy` against the configured PostgreSQL database.
 
-For Docker runs, the same migration script executes at container startup and creates the SQLite database at `/data/dev.db`.
+For Docker runs, migrations execute automatically before `next start`.
 
 ## Local setup instructions
 
 ### Option A: Native local run
+
+Requirements:
+
+- Node.js 22+
+- PostgreSQL available locally or a Neon database URL in `.env`
 
 1. Install dependencies
 
@@ -278,7 +287,7 @@ npm install
 npm run prisma:generate
 ```
 
-3. Create the local database
+3. Apply the database migrations
 
 ```bash
 npm run db:migrate
@@ -310,10 +319,10 @@ docker compose up --build
 
 Notes:
 
-- The container runs Prisma client generation and app build at image build time.
-- On startup, the container runs the SQLite migration script before `next start`.
-- Vault data persists in the named volume `northline_vault_data`.
-- The `ExperimentalWarning` about `node:sqlite` is expected here because the local SQLite bootstrap script uses Node's built-in SQLite support.
+- Compose starts a Postgres 16 service and the app service.
+- The image runs Prisma client generation and the Next.js production build at image build time.
+- On startup, the app container runs `prisma migrate deploy` before `next start`.
+- Vault data persists in the named volume `northline_vault_postgres`.
 - To stop the stack:
 
 ```bash
@@ -364,7 +373,7 @@ npm run build
   - encrypted credential records
   - password fingerprints
 - The file does not contain plaintext username, password, or notes.
-- Recovery still depends on knowing the master password used to derive the keys for that vault.
+- Recovery still depends on knowing the master password used to derive the keys for that specific vault profile.
 - For a real production version, the next step would be signed exports plus import-time integrity validation.
 
 ## Final QA highlights
@@ -372,6 +381,8 @@ npm run build
 The final pass explicitly tightened several areas beyond the initial implementation:
 
 - preserved return-to-task behavior after manual lock and unlock
+- added separate vault profiles so each person can create a distinct master password
+- scoped credential, settings, and rotation APIs by vault id instead of using the first vault in the database
 - removed ambiguous active navigation states
 - improved form-level error handling for save and rotation flows
 - added safer server error exposure behavior
@@ -388,10 +399,10 @@ The final pass explicitly tightened several areas beyond the initial implementat
 
 1. Encrypted backup import with integrity checks and recovery UX
 2. Per-entry owners, review acknowledgements, and change history
-3. Multi-user auth and role-aware access for real team sharing
-4. PostgreSQL profile and deployment-ready environment split
+3. Shared organization vaults with per-user wrapped vault keys and role-aware access
+4. SSO-backed identity, invitations, and audit history
 5. Scheduled rotation reminders and per-entry last-reviewed metadata
-6. Playwright end-to-end tests for setup, unlock, CRUD, lock, and settings
+6. Playwright end-to-end tests for profile setup, unlock, CRUD, lock, and settings
 
 ## Verification completed
 
@@ -406,6 +417,8 @@ Docker artifacts are included for local containerized runs:
 - `Dockerfile`
 - `docker-compose.yml`
 - `.dockerignore`
+
+The Compose stack includes the app and a PostgreSQL service, so reviewers do not need to install Postgres separately for the Docker path.
 
 ## Assessment summary
 

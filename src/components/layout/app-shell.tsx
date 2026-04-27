@@ -218,7 +218,10 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               </div>
               <div className="flex items-center gap-3">
                 <div className="hidden text-right text-sm sm:block">
-                  <p className="font-medium">{vault?.credentialCount ?? 0} credentials</p>
+                  <p className="max-w-[240px] truncate font-medium">
+                    {vault?.name ? `${vault.name} · ` : ""}
+                    {vault?.credentialCount ?? 0} credentials
+                  </p>
                   <p className="text-muted-foreground">
                     {health.staleEntries > 0
                       ? `${health.staleEntries} need rotation review`

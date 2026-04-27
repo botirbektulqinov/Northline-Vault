@@ -16,6 +16,7 @@ enum PasswordStrength {
 
 model Vault {
   id           String       @id @default(cuid())
+  name         String       @unique
   salt         String
   verifier     String
   settingsJson String

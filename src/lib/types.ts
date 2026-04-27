@@ -16,8 +16,15 @@ export interface VaultSettings {
   rotationReviewDays: number;
 }
 
+export interface VaultSummary {
+  id: string;
+  name: string;
+  createdAt: string;
+}
+
 export interface VaultSnapshot {
   id: string;
+  name: string;
   salt: string;
   verifier: string;
   settings: VaultSettings;

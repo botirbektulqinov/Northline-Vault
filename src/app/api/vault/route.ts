@@ -1,24 +1,29 @@
 import { createVaultSchema } from "@/lib/schemas";
 import { jsonNoStore, apiError } from "@/lib/server/api";
 import { prisma } from "@/lib/server/prisma";
-import { serializeSettings, toVaultSnapshot } from "@/lib/server/vault-store";
+import {
+  serializeSettings,
+  toVaultSnapshot,
+  toVaultSummary,
+} from "@/lib/server/vault-store";
 
 export const runtime = "nodejs";
 
 export async function GET() {
   try {
-    const vault = await prisma.vault.findFirst({
-      include: {
-        _count: {
-          select: {
-            credentials: true,
-          },
-        },
+    const vaults = await prisma.vault.findMany({
+      select: {
+        id: true,
+        name: true,
+        createdAt: true,
+      },
+      orderBy: {
+        createdAt: "asc",
       },
     });
 
     return jsonNoStore({
-      vault: vault ? toVaultSnapshot(vault) : null,
+      vaults: vaults.map(toVaultSummary),
     });
   } catch (error) {
     return apiError(error);
@@ -27,20 +32,28 @@ export async function GET() {
 
 export async function POST(request: Request) {
   try {
-    const existingVault = await prisma.vault.findFirst({
+    const payload = createVaultSchema.parse(await request.json());
+
+    const existing = await prisma.vault.findFirst({
+      where: {
+        name: {
+          equals: payload.name,
+          mode: "insensitive",
+        },
+      },
       select: { id: true },
     });
 
-    if (existingVault) {
+    if (existing) {
       return jsonNoStore(
-        { error: "A vault already exists in this workspace." },
+        { error: "A vault with this name already exists. Choose a different name." },
         { status: 409 },
       );
     }
 
-    const payload = createVaultSchema.parse(await request.json());
     const vault = await prisma.vault.create({
       data: {
+        name: payload.name,
         salt: payload.salt,
         verifier: payload.verifier,
         settingsJson: serializeSettings(payload.settings),

@@ -35,12 +35,21 @@ function parseTagsJson(tagsJson: string): string[] {
 export function toVaultSnapshot(vault: VaultWithCount): VaultSnapshot {
   return {
     id: vault.id,
+    name: vault.name,
     salt: vault.salt,
     verifier: vault.verifier,
     settings: parseSettingsJson(vault.settingsJson),
     createdAt: vault.createdAt.toISOString(),
     updatedAt: vault.updatedAt.toISOString(),
     credentialCount: vault._count.credentials,
+  };
+}
+
+export function toVaultSummary(vault: { id: string; name: string; createdAt: Date }) {
+  return {
+    id: vault.id,
+    name: vault.name,
+    createdAt: vault.createdAt.toISOString(),
   };
 }
 

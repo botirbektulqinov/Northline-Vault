@@ -39,6 +39,7 @@ import type {
   VaultBackupExport,
   VaultSettings,
   VaultSnapshot,
+  VaultSummary,
 } from "@/lib/types";
 
 interface VaultContextValue {
@@ -46,13 +47,15 @@ interface VaultContextValue {
   isReady: boolean;
   isUnlocked: boolean;
   hasVault: boolean;
+  vaultSummaries: VaultSummary[];
   vault: VaultSnapshot | null;
   settings: VaultSettings;
   credentials: DecryptedCredential[];
   encryptedCredentials: EncryptedCredentialRecord[];
   health: SecuritySummary;
-  unlock: (masterPassword: string) => Promise<void>;
+  unlock: (vaultId: string, masterPassword: string) => Promise<void>;
   createVault: (
+    name: string,
     masterPassword: string,
     settings?: Partial<VaultSettings>,
   ) => Promise<void>;
@@ -135,6 +138,7 @@ function createUnlockedCredential(
 
 export function VaultProvider({ children }: { children: React.ReactNode }) {
   const [status, setStatus] = useState<SessionStatus>("booting");
+  const [vaultSummaries, setVaultSummaries] = useState<VaultSummary[]>([]);
   const [vault, setVault] = useState<VaultSnapshot | null>(null);
   const [encryptedCredentials, setEncryptedCredentials] = useState<
     EncryptedCredentialRecord[]
@@ -205,22 +209,16 @@ export function VaultProvider({ children }: { children: React.ReactNode }) {
   );
 
   const reloadVault = useCallback(async () => {
-    const data = await requestJson<{ vault: VaultSnapshot | null }>("/api/vault", {
+    const data = await requestJson<{ vaults: VaultSummary[] }>("/api/vault", {
       method: "GET",
     });
 
-    setVault(data.vault);
-
-    if (!data.vault) {
-      resetSessionState();
-      setStatus("locked");
-      return;
-    }
+    setVaultSummaries(data.vaults);
 
     setStatus((currentStatus) =>
       currentStatus === "booting" ? "locked" : currentStatus,
     );
-  }, [resetSessionState]);
+  }, []);
 
   useEffect(() => {
     void reloadVault();
@@ -228,6 +226,7 @@ export function VaultProvider({ children }: { children: React.ReactNode }) {
 
   const lock = useCallback((reason?: string) => {
     resetSessionState();
+    setVault(null);
     setStatus("locked");
 
     if (inactivityTimeoutRef.current) {
@@ -289,36 +288,44 @@ export function VaultProvider({ children }: { children: React.ReactNode }) {
   }, [scheduleAutoLock, status]);
 
   const unlock = useCallback(
-    async (masterPassword: string) => {
-      if (!vault) {
-        throw new Error("Create a vault before trying to unlock it.");
-      }
-
+    async (vaultId: string, masterPassword: string) => {
       setStatus("unlocking");
       let masterKeyMaterial: Uint8Array | null = null;
       let keys: SessionKeys | null = null;
 
       try {
+        const vaultData = await requestJson<{ vault: VaultSnapshot }>(
+          `/api/vault/${vaultId}`,
+          { method: "GET" },
+        );
+        const targetVault = vaultData.vault;
+
         masterKeyMaterial = await deriveMasterKeyMaterial(
           masterPassword,
-          vault.salt,
+          targetVault.salt,
         );
         keys = await deriveVaultKeys(masterKeyMaterial);
 
-        if (!timingSafeEqual(keys.verifier, vault.verifier)) {
+        if (!timingSafeEqual(keys.verifier, targetVault.verifier)) {
           throw new Error("The master password did not match this vault.");
         }
 
         const data = await requestJson<{
           credentials: EncryptedCredentialRecord[];
-        }>("/api/credentials", { method: "GET" });
+        }>(`/api/vault/${vaultId}/credentials`, { method: "GET" });
 
         replaceSessionKeys(keys);
         keys = null;
-        await hydrateCredentials(data.credentials, vault, sessionKeysRef.current);
+        setVault(targetVault);
+        await hydrateCredentials(
+          data.credentials,
+          targetVault,
+          sessionKeysRef.current,
+        );
         setStatus("unlocked");
       } catch (error) {
         resetSessionState();
+        setVault(null);
         setStatus("locked");
         throw error;
       } finally {
@@ -326,11 +333,15 @@ export function VaultProvider({ children }: { children: React.ReactNode }) {
         clearSessionKeys(keys);
       }
     },
-    [hydrateCredentials, replaceSessionKeys, resetSessionState, vault],
+    [hydrateCredentials, replaceSessionKeys, resetSessionState],
   );
 
   const createVault = useCallback(
-    async (masterPassword: string, settingsOverride?: Partial<VaultSettings>) => {
+    async (
+      name: string,
+      masterPassword: string,
+      settingsOverride?: Partial<VaultSettings>,
+    ) => {
       const mergedSettings: VaultSettings = {
         ...DEFAULT_VAULT_SETTINGS,
         ...(settingsOverride ?? {}),
@@ -345,6 +356,7 @@ export function VaultProvider({ children }: { children: React.ReactNode }) {
         const data = await requestJson<{ vault: VaultSnapshot }>("/api/vault", {
           method: "POST",
           body: JSON.stringify({
+            name,
             salt,
             verifier: keys.verifier,
             settings: mergedSettings,
@@ -354,6 +366,14 @@ export function VaultProvider({ children }: { children: React.ReactNode }) {
         replaceSessionKeys(keys);
         keys = null;
         setVault(data.vault);
+        setVaultSummaries((prev) => [
+          ...prev,
+          {
+            id: data.vault.id,
+            name: data.vault.name,
+            createdAt: data.vault.createdAt,
+          },
+        ]);
         setEncryptedCredentials([]);
         setCredentials([]);
         setStatus("unlocked");
@@ -401,7 +421,9 @@ export function VaultProvider({ children }: { children: React.ReactNode }) {
         passwordFingerprint,
       };
 
-      const endpoint = id ? `/api/credentials/${id}` : "/api/credentials";
+      const endpoint = id
+        ? `/api/vault/${vault.id}/credentials/${id}`
+        : `/api/vault/${vault.id}/credentials`;
       const method = id ? "PUT" : "POST";
       const data = await requestJson<{ credential: EncryptedCredentialRecord }>(
         endpoint,
@@ -453,14 +475,19 @@ export function VaultProvider({ children }: { children: React.ReactNode }) {
         throw new Error("Unlock the vault before deleting credentials.");
       }
 
-      await requestJson<{ success: boolean }>(`/api/credentials/${id}`, {
-        method: "DELETE",
-      });
+      await requestJson<{ success: boolean }>(
+        `/api/vault/${vault.id}/credentials/${id}`,
+        { method: "DELETE" },
+      );
 
       const nextEncryptedCredentials = encryptedCredentials.filter(
         (credential) => credential.id !== id,
       );
-      await hydrateCredentials(nextEncryptedCredentials, vault, sessionKeysRef.current);
+      await hydrateCredentials(
+        nextEncryptedCredentials,
+        vault,
+        sessionKeysRef.current,
+      );
       setVault((currentVault) =>
         currentVault
           ? {
@@ -475,8 +502,12 @@ export function VaultProvider({ children }: { children: React.ReactNode }) {
 
   const updateSettings = useCallback(
     async (nextSettings: VaultSettings) => {
+      if (!vault) {
+        throw new Error("Unlock the vault before updating settings.");
+      }
+
       const data = await requestJson<{ vault: VaultSnapshot }>(
-        "/api/vault/settings",
+        `/api/vault/${vault.id}/settings`,
         {
           method: "PATCH",
           body: JSON.stringify({ settings: nextSettings }),
@@ -490,7 +521,7 @@ export function VaultProvider({ children }: { children: React.ReactNode }) {
         sessionKeysRef.current,
       );
     },
-    [encryptedCredentials, hydrateCredentials],
+    [encryptedCredentials, hydrateCredentials, vault],
   );
 
   const changeMasterPassword = useCallback(
@@ -543,7 +574,7 @@ export function VaultProvider({ children }: { children: React.ReactNode }) {
         const data = await requestJson<{
           vault: VaultSnapshot;
           credentials: EncryptedCredentialRecord[];
-        }>("/api/vault/rotate-master", {
+        }>(`/api/vault/${vault.id}/rotate-master`, {
           method: "POST",
           body: JSON.stringify({
             salt: nextSalt,
@@ -555,7 +586,11 @@ export function VaultProvider({ children }: { children: React.ReactNode }) {
         replaceSessionKeys(nextKeys);
         nextKeys = null;
         setVault(data.vault);
-        await hydrateCredentials(data.credentials, data.vault, sessionKeysRef.current);
+        await hydrateCredentials(
+          data.credentials,
+          data.vault,
+          sessionKeysRef.current,
+        );
       } finally {
         clearBytes(currentMaterial);
         clearBytes(nextMaterial);
@@ -576,6 +611,7 @@ export function VaultProvider({ children }: { children: React.ReactNode }) {
       exportedAt: new Date().toISOString(),
       vault: {
         id: vault.id,
+        name: vault.name,
         salt: vault.salt,
         verifier: vault.verifier,
         settings: vault.settings,
@@ -596,7 +632,8 @@ export function VaultProvider({ children }: { children: React.ReactNode }) {
       status,
       isReady: status !== "booting",
       isUnlocked: status === "unlocked",
-      hasVault: Boolean(vault),
+      hasVault: vaultSummaries.length > 0,
+      vaultSummaries,
       vault,
       settings,
       credentials,
@@ -629,6 +666,7 @@ export function VaultProvider({ children }: { children: React.ReactNode }) {
       unlock,
       updateSettings,
       vault,
+      vaultSummaries,
     ],
   );
 

@@ -1,39 +1,15 @@
-import { updateSettingsSchema } from "@/lib/schemas";
-import { apiError, jsonNoStore } from "@/lib/server/api";
-import { prisma } from "@/lib/server/prisma";
-import { serializeSettings, toVaultSnapshot } from "@/lib/server/vault-store";
+// This route has been moved to /api/vault/[id]/settings
+// Keeping this file empty to avoid 404 during transition.
+// All settings operations now use the vault-specific endpoint.
+import { jsonNoStore } from "@/lib/server/api";
 
 export const runtime = "nodejs";
 
-export async function PATCH(request: Request) {
-  try {
-    const payload = updateSettingsSchema.parse(await request.json());
-    const vault = await prisma.vault.findFirst({
-      select: { id: true },
-    });
-
-    if (!vault) {
-      return jsonNoStore({ error: "Vault not found." }, { status: 404 });
-    }
-
-    const updatedVault = await prisma.vault.update({
-      where: { id: vault.id },
-      data: {
-        settingsJson: serializeSettings(payload.settings),
-      },
-      include: {
-        _count: {
-          select: {
-            credentials: true,
-          },
-        },
-      },
-    });
-
-    return jsonNoStore({
-      vault: toVaultSnapshot(updatedVault),
-    });
-  } catch (error) {
-    return apiError(error);
-  }
+export async function PATCH() {
+  return jsonNoStore(
+    {
+      error: "This endpoint has moved. Use /api/vault/[id]/settings instead.",
+    },
+    { status: 410 },
+  );
 }

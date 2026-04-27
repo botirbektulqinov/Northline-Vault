@@ -11,8 +11,9 @@
     "test": "vitest run --coverage",
     "test:watch": "vitest",
     "prisma:generate": "prisma generate",
-    "db:migrate": "node scripts/setup-sqlite.mjs",
-    "db:push": "node scripts/setup-sqlite.mjs",
+    "db:migrate": "prisma migrate deploy",
+    "db:dev": "prisma migrate dev",
+    "db:push": "prisma db push",
     "docker:build": "docker build -t northline-vault .",
     "docker:up": "docker compose up --build",
     "docker:down": "docker compose down"
